@@ -1,0 +1,259 @@
+"""CSV를 읽어서 분석할 수 있는 상태로 정리(전처리)하는 모듈.
+
+이 파일이 담당하는 일은 4가지입니다.
+1) CSV 읽기 (한글 인코딩 문제 대응)
+2) 필수 컬럼이 다 있는지 검증
+3) 타입 변환 (날짜는 날짜로, 숫자는 숫자로)
+4) 결측치/이상치 정리 후 "무엇을 손봤는지" 사용자에게 알려줄 정보 반환
+
+실무에서 가장 많은 시간이 걸리는 부분이 바로 이 전처리입니다.
+그래서 화면 코드와 섞지 않고 별도 파일로 분리했습니다.
+"""
+
+import pandas as pd
+
+from src import config
+
+
+class DataValidationError(Exception):
+    """업로드한 데이터로는 분석을 진행할 수 없을 때 발생시키는 예외.
+
+    예외를 따로 만든 이유: app.py에서 이 예외만 잡아서
+    "사용자에게 보여줄 안내 메시지"로 바꿔 처리할 수 있습니다.
+    """
+
+    pass
+
+
+def read_csv(source) -> pd.DataFrame:
+    """CSV 파일을 읽어 DataFrame으로 반환합니다.
+
+    Parameters
+    ----------
+    source : str | Path | file-like
+        파일 경로 또는 Streamlit 업로더가 준 파일 객체
+
+    Returns
+    -------
+    pd.DataFrame
+
+    Notes
+    -----
+    한국에서 만든 CSV는 인코딩이 두 가지로 나뉩니다.
+    - utf-8-sig : 구글 스프레드시트, 대부분의 툴에서 내보낸 파일
+    - cp949     : 윈도우 엑셀에서 "CSV(쉼표로 분리)"로 저장한 파일
+    그래서 utf-8 계열을 먼저 시도하고, 실패하면 cp949로 다시 시도합니다.
+    이 처리가 없으면 한글 컬럼/값이 있는 파일에서 UnicodeDecodeError가 납니다.
+    """
+    last_error = None
+
+    for encoding in ("utf-8-sig", "cp949"):
+        try:
+            # 파일 객체는 한 번 읽으면 커서가 끝으로 가므로 처음으로 되돌립니다.
+            if hasattr(source, "seek"):
+                source.seek(0)
+            df = pd.read_csv(source, encoding=encoding)
+            # 컬럼 이름에 공백이 섞여 있으면 뒤에서 전부 실패하므로 미리 정리합니다.
+            df.columns = [str(col).strip() for col in df.columns]
+            return df
+        except UnicodeDecodeError as error:
+            last_error = error
+        except pd.errors.EmptyDataError:
+            raise DataValidationError("CSV 파일이 비어 있습니다.")
+
+    raise DataValidationError(
+        "CSV 인코딩을 읽을 수 없습니다. UTF-8 또는 CP949로 저장한 뒤 다시 시도해주세요. "
+        "(원인: {})".format(last_error)
+    )
+
+
+def validate_columns(df: pd.DataFrame) -> list:
+    """필수 컬럼 중 빠진 것들의 목록을 반환합니다.
+
+    반환값이 빈 리스트([])면 검증 통과입니다.
+    예외를 던지지 않고 "목록"을 돌려주는 이유는
+    화면에서 "어떤 컬럼이 없는지" 전부 보여주기 위해서입니다.
+    """
+    return [col for col in config.REQUIRED_COLUMNS if col not in df.columns]
+
+
+def check_funnel_consistency(df: pd.DataFrame) -> int:
+    """퍼널 순서가 어긋난 행의 개수를 셉니다.
+
+    정상이라면 노출 >= 도달 >= 조회수 >= 클릭 >= 문의 >= 전환 이어야 합니다.
+    어긋난 행이 있어도 계산을 막지 않고 개수만 알려줍니다.
+    (실무 데이터는 채널마다 집계 기준이 달라 이런 경우가 종종 있습니다.
+     여기서 분석을 중단시키면 대시보드를 아예 못 쓰게 됩니다.)
+    """
+    # 먼저 "위반 없음(False)"으로 시작해서, 단계별로 위반을 누적(or)합니다.
+    violated = pd.Series(False, index=df.index)
+
+    for upper, lower in zip(config.FUNNEL_ORDER, config.FUNNEL_ORDER[1:]):
+        if upper in df.columns and lower in df.columns:
+            violated = violated | (df[upper] < df[lower])
+
+    return int(violated.sum())
+
+
+def clean_data(df: pd.DataFrame) -> tuple:
+    """타입 변환과 결측/이상치 정리를 수행합니다.
+
+    Returns
+    -------
+    (pd.DataFrame, dict)
+        정리된 데이터프레임과, 무엇을 얼마나 손봤는지 담은 info 딕셔너리
+    """
+    # 원본을 직접 수정하지 않도록 복사합니다.
+    # (원본을 바꾸면 Streamlit 캐시와 맞물려 예측하기 어려운 버그가 생깁니다)
+    df = df.copy()
+
+    info = {
+        "rows_before": len(df),
+        "invalid_date_rows": 0,
+        "missing_numeric_cells": 0,
+        "negative_value_cells": 0,
+        "has_cost": "cost" in df.columns,
+        "has_revenue": "revenue" in df.columns,
+    }
+
+    # ------------------------------------------------------------------
+    # 1) 날짜 변환
+    # ------------------------------------------------------------------
+    # errors="coerce" 는 "변환 실패한 값을 에러 대신 NaT(빈 날짜)로 만들어라"는 뜻입니다.
+    # 이렇게 하면 이상한 값 하나 때문에 전체가 멈추지 않습니다.
+    df[config.DATE_COLUMN] = pd.to_datetime(df[config.DATE_COLUMN], errors="coerce")
+
+    info["invalid_date_rows"] = int(df[config.DATE_COLUMN].isna().sum())
+    # 날짜가 없는 행은 기간 분석이 불가능하므로 제외합니다.
+    df = df[df[config.DATE_COLUMN].notna()].copy()
+
+    # 시간 정보를 지워 날짜 단위로 통일합니다. (00:00:00 으로 맞춤)
+    df[config.DATE_COLUMN] = df[config.DATE_COLUMN].dt.normalize()
+
+    # ------------------------------------------------------------------
+    # 2) 숫자 변환 + 결측/음수 처리
+    # ------------------------------------------------------------------
+    for column in config.ALL_NUMERIC_COLUMNS:
+        if column not in df.columns:
+            # 선택 컬럼(cost, revenue)이 없으면 0으로 채운 컬럼을 새로 만듭니다.
+            # 뒤쪽 계산 코드에서 "컬럼이 있나 없나"를 매번 확인하지 않아도 되게 하려는 목적입니다.
+            df[column] = 0
+            continue
+
+        converted = pd.to_numeric(df[column], errors="coerce")
+
+        # 숫자로 바꾸지 못한 칸(빈칸, 문자 등)의 개수를 기록하고 0으로 채웁니다.
+        info["missing_numeric_cells"] += int(converted.isna().sum())
+        converted = converted.fillna(0)
+
+        # 성과 지표에 음수는 있을 수 없으므로 0으로 올립니다.
+        negative_count = int((converted < 0).sum())
+        info["negative_value_cells"] += negative_count
+        if negative_count:
+            converted = converted.clip(lower=0)
+
+        df[column] = converted
+
+    # 퍼널 지표는 '개수'이므로 정수로 맞춥니다. (화면에 12.0 대신 12로 보이게)
+    for column in config.REQUIRED_NUMERIC_COLUMNS:
+        df[column] = df[column].round().astype("int64")
+
+    # ------------------------------------------------------------------
+    # 3) 문자 컬럼 정리
+    # ------------------------------------------------------------------
+    for column in config.TEXT_COLUMNS:
+        if column not in df.columns:
+            df[column] = config.UNKNOWN_LABEL
+            continue
+        # 빈 값은 '미분류'로 채우고, 앞뒤 공백을 제거합니다.
+        # 공백을 지우지 않으면 "instagram"과 "instagram "이 다른 채널로 집계됩니다.
+        df[column] = df[column].fillna(config.UNKNOWN_LABEL).astype(str).str.strip()
+        df[column] = df[column].replace("", config.UNKNOWN_LABEL)
+
+    # ------------------------------------------------------------------
+    # 4) 화면 표시용 한국어 라벨 컬럼 추가
+    # ------------------------------------------------------------------
+    df["channel_label"] = df["channel"].map(config.get_channel_label)
+    df["content_type_label"] = df["content_type"].map(config.get_content_type_label)
+
+    # ------------------------------------------------------------------
+    # 5) 정렬 및 마무리
+    # ------------------------------------------------------------------
+    df = df.sort_values(config.DATE_COLUMN).reset_index(drop=True)
+
+    info["rows_after"] = len(df)
+    info["funnel_violation_rows"] = check_funnel_consistency(df)
+
+    return df, info
+
+
+def load_and_prepare(source=None) -> tuple:
+    """CSV 읽기 -> 검증 -> 정리를 한 번에 수행하는 함수.
+
+    Parameters
+    ----------
+    source : str | Path | file-like | None
+        None이면 저장소에 포함된 샘플 데이터를 사용합니다.
+        (업로드 없이도 대시보드를 바로 체험할 수 있게 하는 장치)
+
+    Returns
+    -------
+    (pd.DataFrame, dict)
+
+    Raises
+    ------
+    DataValidationError
+        필수 컬럼이 없거나 CSV를 읽을 수 없는 경우
+    """
+    is_sample = source is None
+    if is_sample:
+        source = config.SAMPLE_DATA_PATH
+
+    df = read_csv(source)
+
+    missing = validate_columns(df)
+    if missing:
+        raise DataValidationError(
+            "필수 컬럼이 없습니다: {}\n필요한 컬럼 전체: {}".format(
+                ", ".join(missing), ", ".join(config.REQUIRED_COLUMNS)
+            )
+        )
+
+    df, info = clean_data(df)
+
+    if df.empty:
+        raise DataValidationError("분석할 수 있는 행이 없습니다. 날짜 형식을 확인해주세요.")
+
+    info["is_sample"] = is_sample
+    return df, info
+
+
+def filter_data(df: pd.DataFrame, start_date, end_date, channels=None, content_types=None):
+    """기간/채널/콘텐츠 유형으로 데이터를 걸러냅니다.
+
+    Parameters
+    ----------
+    start_date, end_date : date | datetime | str
+        분석 기간 (양쪽 끝 포함)
+    channels : list | None
+        선택한 채널 코드 목록. None이면 전체
+    content_types : list | None
+        선택한 콘텐츠 유형 목록. None이면 전체
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    # 비교를 위해 Timestamp로 통일합니다. (문자열/date/datetime 무엇이 와도 동작)
+    start = pd.Timestamp(start_date).normalize()
+    end = pd.Timestamp(end_date).normalize()
+
+    mask = (df[config.DATE_COLUMN] >= start) & (df[config.DATE_COLUMN] <= end)
+
+    if channels:
+        mask = mask & df["channel"].isin(channels)
+
+    if content_types:
+        mask = mask & df["content_type"].isin(content_types)
+
+    return df[mask].copy()
