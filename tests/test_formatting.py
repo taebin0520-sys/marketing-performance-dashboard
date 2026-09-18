@@ -76,3 +76,34 @@ def test_format_delta_new_takes_priority():
 def test_format_delta_none_returns_none():
     """비교할 수 없는 경우 None을 돌려줘야 합니다. (st.metric이 delta를 숨기게 됨)"""
     assert formatting.format_delta(None, is_new=False) is None
+
+
+
+def test_build_filename_with_date_objects():
+    """date 객체를 넘기면 YYYYMMDD 형식으로 파일명이 만들어져야 합니다."""
+    from datetime import date
+
+    filename = formatting.build_filename(
+        "report", date(2026, 8, 17), date(2026, 9, 13), "md"
+    )
+
+    assert filename == "report_20260817_20260913.md"
+
+
+def test_build_filename_with_string_dates():
+    """'YYYY-MM-DD' 문자열을 넘겨도 하이픈이 빠진 형식으로 만들어져야 합니다.
+
+    app.py에서 start_date가 상황에 따라 date 객체 또는 문자열일 수 있어서
+    두 타입을 모두 지원해야 합니다.
+    """
+    filename = formatting.build_filename("raw_data", "2026-08-17", "2026-09-13", "csv")
+
+    assert filename == "raw_data_20260817_20260913.csv"
+
+
+def test_build_filename_includes_extension_without_dot():
+    """extension 파라미터에 점(.)을 붙이지 않아도 파일명에는 점이 하나만 들어가야 합니다."""
+    filename = formatting.build_filename("test", "2026-01-01", "2026-01-07", "csv")
+
+    assert filename.endswith(".csv")
+    assert filename.count(".") == 1

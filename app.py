@@ -494,6 +494,14 @@ with tab_report:
 
     st.markdown(report_text)
 
+    st.divider()
+    st.download_button(
+        label="⬇️ 요약 리포트 다운로드 (.md)",
+        data=report_text.encode("utf-8-sig"),  # 한글이 깨지지 않도록 BOM 포함 인코딩
+        file_name=formatting.build_filename("summary_report", start_date, end_date, "md"),
+        mime="text/markdown",
+    )
+
 # ---------------------------- 6-5. 원본 데이터 탭 ----------------------------
 with tab_raw:
     st.subheader("필터가 적용된 원본 데이터")
@@ -508,4 +516,56 @@ with tab_raw:
         use_container_width=True,
         hide_index=True,
     )
-    st.caption("화면에는 최대 500행만 표시합니다.")
+    st.caption("화면에는 최대 500행만 표시합니다. (다운로드에는 전체 행이 포함됩니다)")
+
+    st.divider()
+    st.subheader("결과 다운로드")
+
+    download_col1, download_col2, download_col3 = st.columns(3)
+
+    # (1) 필터 적용된 원본 데이터 전체 (화면 표시는 500행이지만 다운로드는 전체)
+    raw_csv = filtered_df[preview_columns].to_csv(index=False)
+    download_col1.download_button(
+        label="⬇️ 원본 데이터 (.csv)",
+        # utf-8-sig 로 인코딩해야 엑셀에서 열었을 때 한글이 깨지지 않습니다.
+        data=raw_csv.encode("utf-8-sig"),
+        file_name=formatting.build_filename("raw_data", start_date, end_date, "csv"),
+        mime="text/csv",
+    )
+
+    # (2) 채널별 집계표
+    channel_export_df = format_table(
+        analysis.aggregate_by_channel(filtered_df),
+        base_columns=[("channel_label", "채널")],
+        metric_columns=[
+            "impressions", "reach", "views", "clicks", "inquiries", "conversions",
+            "ctr", "inquiry_rate", "conversion_rate", "cost", "cpa", "roas",
+        ],
+    )
+    download_col2.download_button(
+        label="⬇️ 채널별 집계표 (.csv)",
+        data=channel_export_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=formatting.build_filename("channel_summary", start_date, end_date, "csv"),
+        mime="text/csv",
+    )
+
+    # (3) 콘텐츠별 집계표
+    content_export_df = format_table(
+        analysis.aggregate_by_content(filtered_df),
+        base_columns=[
+            ("content_id", "콘텐츠 ID"),
+            ("content_title", "콘텐츠"),
+            ("channel_label", "채널"),
+            ("content_type_label", "유형"),
+        ],
+        metric_columns=[
+            "impressions", "views", "clicks", "inquiries", "conversions",
+            "ctr", "conversion_rate",
+        ],
+    )
+    download_col3.download_button(
+        label="⬇️ 콘텐츠별 집계표 (.csv)",
+        data=content_export_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=formatting.build_filename("content_summary", start_date, end_date, "csv"),
+        mime="text/csv",
+    )

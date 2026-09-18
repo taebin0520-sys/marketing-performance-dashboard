@@ -103,6 +103,30 @@ def format_delta(percent_change, is_new: bool = False):
     return "{:+.1f}%".format(percent_change * 100)
 
 
+def build_filename(prefix: str, start_date, end_date, extension: str) -> str:
+    """다운로드 파일 이름을 만듭니다. 예) build_filename('report', ..., 'md')
+       -> 'report_20260817_20260913.md'
+
+    파일명에 분석 기간을 넣는 이유:
+    "report.md"라는 이름만 있으면 나중에 여러 번 받아도 어느 기간 것인지
+    구분이 안 되고, 다시 받으면 덮어써질 수 있습니다.
+    """
+    start_text = _format_date_for_filename(start_date)
+    end_text = _format_date_for_filename(end_date)
+    return "{}_{}_{}.{}".format(prefix, start_text, end_text, extension)
+
+
+def _format_date_for_filename(value) -> str:
+    """날짜를 파일명에 쓸 수 있는 'YYYYMMDD' 형식으로 바꿉니다.
+
+    date 객체든 'YYYY-MM-DD' 문자열이든 둘 다 받을 수 있게 처리합니다.
+    (app.py에서 넘기는 start_date가 상황에 따라 둘 중 하나일 수 있어서입니다)
+    """
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y%m%d")
+    return str(value).replace("-", "")
+
+
 def format_big_number(value) -> str:
     """큰 숫자를 만/억 단위로 짧게 줄입니다. (KPI 카드처럼 공간이 좁을 때)
 
