@@ -187,3 +187,87 @@ def test_same_title_different_contents_are_not_merged():
 
     assert len(result) == 2
     assert result["content_label"].nunique() == 2
+
+
+
+# ---------------------------------------------------------------------------
+# 전기 대비 증감 테스트
+# ---------------------------------------------------------------------------
+
+def test_get_previous_period_same_length():
+    """직전 기간은 선택 기간과 반드시 같은 길이여야 합니다.
+
+    09-08 ~ 09-14 는 7일입니다. (양쪽 끝을 포함해서 셈)
+    직전 기간도 7일이어야 하므로 09-01 ~ 09-07 이 되어야 합니다.
+    """
+    prev_start, prev_end = analysis.get_previous_period("2026-09-08", "2026-09-14")
+
+    assert prev_start.strftime("%Y-%m-%d") == "2026-09-01"
+    assert prev_end.strftime("%Y-%m-%d") == "2026-09-07"
+    # 길이가 정말 같은지 확인 (7일)
+    assert (prev_end - prev_start).days + 1 == 7
+
+
+def test_get_previous_period_single_day():
+    """하루만 선택해도(기간 길이 1일) 직전 기간은 바로 전날 하루여야 합니다."""
+    prev_start, prev_end = analysis.get_previous_period("2026-09-10", "2026-09-10")
+
+    assert prev_start.strftime("%Y-%m-%d") == "2026-09-09"
+    assert prev_end.strftime("%Y-%m-%d") == "2026-09-09"
+
+
+def test_calculate_period_over_period_basic_increase():
+    """전환이 10 -> 15로 늘면 delta=5, percent_change=0.5(50%)여야 합니다."""
+    current = {"conversions": 15, "clicks": 100}
+    previous = {"conversions": 10, "clicks": 100}
+
+    result = analysis.calculate_period_over_period(current, previous)
+
+    assert result["conversions"]["delta"] == 5
+    assert result["conversions"]["percent_change"] == 0.5
+    assert result["conversions"]["is_new"] is False
+
+
+def test_calculate_period_over_period_marks_new_when_previous_zero():
+    """직전 기간 값이 0이었다가 생겼으면 '신규'로 표시되어야 합니다. (0으로 나누기 방지)"""
+    current = {"conversions": 5}
+    previous = {"conversions": 0}
+
+    result = analysis.calculate_period_over_period(current, previous)
+
+    assert result["conversions"]["is_new"] is True
+    assert result["conversions"]["percent_change"] is None
+    assert result["conversions"]["delta"] == 5
+
+
+def test_calculate_period_over_period_both_zero_is_not_new():
+    """양쪽 다 0이면 '신규'가 아니라 그냥 변화 없음입니다."""
+    result = analysis.calculate_period_over_period({"conversions": 0}, {"conversions": 0})
+
+    assert result["conversions"]["is_new"] is False
+    assert result["conversions"]["delta"] == 0
+
+
+def test_calculate_period_over_period_none_values_skip_comparison():
+    """계산 자체가 불가능했던 지표(None)는 증감도 계산하지 않아야 합니다.
+
+    예) 광고비가 0원이라 CPA가 None인 경우, 억지로 증감을 만들면 안 됩니다.
+    """
+    current = {"cpa": None}
+    previous = {"cpa": 5000}
+
+    result = analysis.calculate_period_over_period(current, previous)
+
+    assert result["cpa"]["delta"] is None
+    assert result["cpa"]["percent_change"] is None
+
+
+def test_calculate_period_over_period_excludes_row_count():
+    """row_count 는 KPI가 아니므로 증감 비교 결과에 포함되지 않아야 합니다."""
+    current = {"conversions": 10, "row_count": 100}
+    previous = {"conversions": 5, "row_count": 50}
+
+    result = analysis.calculate_period_over_period(current, previous)
+
+    assert "row_count" not in result
+    assert "conversions" in result

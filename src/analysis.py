@@ -1,9 +1,10 @@
 """데이터를 기준별로 묶어서(집계) 분석하는 모듈.
 
-담당하는 분석은 3가지입니다.
+담당하는 분석은 4가지입니다.
 1) 기간별 추세  : 일간 / 주간 / 월간
 2) 채널별 성과 비교
 3) 콘텐츠별 성과 + TOP N
+4) 직전 동일 기간 대비 증감
 
 모든 함수는 "DataFrame을 받아서 DataFrame을 돌려준다"는 형태로 통일했습니다.
 입출력이 일정하면 테스트하기 쉽고, 다른 함수와 조합하기도 쉽습니다.
@@ -192,6 +193,93 @@ def top_n_content(
     ranked = filtered.sort_values(metric, ascending=ascending, na_position="last")
 
     return ranked.head(n).reset_index(drop=True)
+
+
+def get_previous_period(start_date, end_date) -> tuple:
+    """선택한 기간과 '같은 길이'의 직전 기간을 계산합니다.
+
+    예) 09-08 ~ 09-14 (7일) 를 선택했다면
+        직전 기간은 09-01 ~ 09-07 (역시 7일) 이 됩니다.
+
+    왜 '같은 길이'로 맞추나요?
+        선택 기간이 7일인데 비교 기간이 30일이면 단순히 기간이 길어서
+        전환 수가 더 많아 보이는 착시가 생깁니다. 길이를 맞춰야
+        "정말 이번 기간의 성과가 좋아졌는지"를 공정하게 비교할 수 있습니다.
+
+    Returns
+    -------
+    (pd.Timestamp, pd.Timestamp)
+        (직전 기간 시작일, 직전 기간 종료일)
+    """
+    start = pd.Timestamp(start_date).normalize()
+    end = pd.Timestamp(end_date).normalize()
+
+    # 기간 길이(일 수). 양쪽 끝을 포함하므로 +1을 합니다.
+    # 예) 09-08 ~ 09-14 => (14-8)+1 = 7일
+    period_length = (end - start).days + 1
+
+    previous_end = start - pd.Timedelta(days=1)
+    previous_start = previous_end - pd.Timedelta(days=period_length - 1)
+
+    return previous_start, previous_end
+
+
+def calculate_period_over_period(current_kpis: dict, previous_kpis: dict) -> dict:
+    """이번 기간 KPI와 직전 기간 KPI를 비교해 증감 정보를 계산합니다.
+
+    Parameters
+    ----------
+    current_kpis, previous_kpis : dict
+        kpi.calculate_kpis() 의 결과 (합계 지표 + 비율 지표 + row_count)
+
+    Returns
+    -------
+    dict
+        {지표명: {"current": 값, "previous": 값, "delta": 증감분, "percent_change": 증감률, "is_new": bool}}
+
+        - delta / percent_change 가 None 이면 "비교할 수 없음" (화면에 '-')
+        - is_new 가 True 이면 "직전 기간 값이 0이었다가 새로 생김" (화면에 '신규')
+    """
+    result = {}
+
+    for metric, current_value in current_kpis.items():
+        if metric == "row_count":
+            continue  # 행 개수는 KPI가 아니므로 증감 비교 대상에서 제외
+
+        previous_value = previous_kpis.get(metric)
+
+        # 둘 중 하나라도 계산 자체가 불가능했던 지표(예: 광고비 0원이라 CPA가 None)는
+        # 증감도 계산할 수 없습니다. 억지로 0을 넣으면 잘못된 증감으로 보일 수 있습니다.
+        if current_value is None or previous_value is None:
+            result[metric] = {
+                "current": current_value,
+                "previous": previous_value,
+                "delta": None,
+                "percent_change": None,
+                "is_new": False,
+            }
+            continue
+
+        delta = current_value - previous_value
+
+        if previous_value == 0:
+            # 직전 기간에 0이었다면 '몇 % 늘었다'는 계산이 의미가 없습니다(0으로 나누기).
+            # 대신 '신규로 발생했다'는 의미로 처리합니다. (F6-3 규칙)
+            percent_change = None
+            is_new = current_value > 0
+        else:
+            percent_change = delta / previous_value
+            is_new = False
+
+        result[metric] = {
+            "current": current_value,
+            "previous": previous_value,
+            "delta": delta,
+            "percent_change": percent_change,
+            "is_new": is_new,
+        }
+
+    return result
 
 
 def summarize_channel_ranking(channel_df: pd.DataFrame, metric: str = "conversions") -> dict:

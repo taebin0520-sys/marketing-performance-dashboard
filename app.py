@@ -195,6 +195,26 @@ if filtered_df.empty:
     st.stop()
 
 # ---------------------------------------------------------------------------
+# 3-1. 직전 동일 기간 데이터 준비 (전기 대비 증감용)
+# ---------------------------------------------------------------------------
+# 선택한 기간과 같은 길이의 바로 이전 기간을 자동으로 계산합니다.
+# 예) 7일을 선택했다면 바로 이전 7일과 비교합니다.
+previous_start, previous_end = analysis.get_previous_period(start_date, end_date)
+
+# 비교 기간은 채널/콘텐츠 유형 필터는 동일하게 적용하되, 원본 df 전체에서 찾습니다.
+# (filtered_df 는 이미 현재 기간으로 좁혀져 있어서 그 안에는 이전 기간 데이터가 없습니다)
+previous_df = data_loader.filter_data(
+    df,
+    start_date=previous_start,
+    end_date=previous_end,
+    channels=selected_channels,
+    content_types=selected_content_types,
+)
+
+# 원본 데이터의 최소 날짜보다 이전 기간이면 비교할 데이터가 아예 없다는 뜻입니다.
+has_previous_period = not previous_df.empty and previous_start.date() >= min_date
+
+# ---------------------------------------------------------------------------
 # 4. 데이터 검증 결과 안내
 # ---------------------------------------------------------------------------
 with st.expander("데이터 검증 결과 보기", expanded=False):
@@ -235,29 +255,53 @@ with st.expander("데이터 검증 결과 보기", expanded=False):
         st.write("- 특별히 보정한 내용이 없습니다. 데이터 상태가 양호합니다.")
 
 # ---------------------------------------------------------------------------
-# 5. KPI 요약 카드
+# 5. KPI 요약 카드 (+ 전기 대비 증감)
 # ---------------------------------------------------------------------------
 kpis = kpi.calculate_kpis(filtered_df)
 
+# 비교 기간 데이터가 있을 때만 증감을 계산합니다.
+period_over_period = {}
+if has_previous_period:
+    previous_kpis = kpi.calculate_kpis(previous_df)
+    period_over_period = analysis.calculate_period_over_period(kpis, previous_kpis)
+
 st.subheader("핵심 지표 요약")
+
+if has_previous_period:
+    st.caption(
+        "직전 기간({} ~ {}) 대비 증감을 함께 표시합니다.".format(
+            previous_start.date(), previous_end.date()
+        )
+    )
+else:
+    st.caption("비교할 직전 기간 데이터가 없어 증감은 표시하지 않습니다.")
+
+
+def render_metric_card(column, metric):
+    """KPI 카드 1개를 그립니다. 증감 정보가 있으면 delta도 함께 표시합니다."""
+    delta_text = None
+    if metric in period_over_period:
+        info = period_over_period[metric]
+        delta_text = formatting.format_delta(info["percent_change"], info["is_new"])
+
+    column.metric(
+        config.get_metric_label(metric),
+        formatting.format_metric(metric, kpis[metric]),
+        delta=delta_text,
+    )
+
 
 # 5-1. 규모 지표 (합계)
 volume_columns = st.columns(len(config.KPI_CARD_METRICS))
 for column, metric in zip(volume_columns, config.KPI_CARD_METRICS):
-    column.metric(
-        config.get_metric_label(metric),
-        formatting.format_int(kpis[metric]),
-    )
+    render_metric_card(column, metric)
 
 # 5-2. 효율 지표 (비율)
 st.write("")  # 카드 사이 여백
 efficiency_metrics = ["ctr", "inquiry_rate", "conversion_rate", "cpa", "roas"]
 efficiency_columns = st.columns(len(efficiency_metrics))
 for column, metric in zip(efficiency_columns, efficiency_metrics):
-    column.metric(
-        config.get_metric_label(metric),
-        formatting.format_metric(metric, kpis[metric]),
-    )
+    render_metric_card(column, metric)
 
 st.caption(
     "비율 지표는 행별 비율의 평균이 아니라 '합계 ÷ 합계'로 계산했습니다. "

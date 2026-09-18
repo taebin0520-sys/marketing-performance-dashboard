@@ -80,6 +80,29 @@ def format_metric(metric: str, value) -> str:
     return format_int(value)
 
 
+def format_delta(percent_change, is_new: bool = False):
+    """전기 대비 증감률을 st.metric의 delta 파라미터용 문자열로 바꿉니다.
+
+    Parameters
+    ----------
+    percent_change : float | None
+        analysis.calculate_period_over_period() 가 계산한 증감률 (예: 0.125 = 12.5% 증가)
+    is_new : bool
+        직전 기간에는 0이었다가 새로 생긴 경우
+
+    Returns
+    -------
+    str | None
+        None 을 돌려주면 st.metric이 delta 표시를 하지 않습니다.
+        (비교 기간 데이터가 없거나 계산이 불가능한 경우)
+    """
+    if is_new:
+        return "신규"
+    if is_empty(percent_change):
+        return None
+    return "{:+.1f}%".format(percent_change * 100)
+
+
 def format_big_number(value) -> str:
     """큰 숫자를 만/억 단위로 짧게 줄입니다. (KPI 카드처럼 공간이 좁을 때)
 

@@ -55,3 +55,24 @@ def test_format_big_number_shortens_large_values():
     assert formatting.format_big_number(41880305) == "4,188만"
     assert formatting.format_big_number(4033856736) == "40.3억"
     assert formatting.format_big_number(3500) == "3,500"
+
+
+
+def test_format_delta_positive_change():
+    """양수 증감은 + 부호와 함께 표시되어야 합니다."""
+    assert formatting.format_delta(0.125) == "+12.5%"
+
+
+def test_format_delta_negative_change():
+    """음수 증감은 - 부호와 함께 표시되어야 합니다."""
+    assert formatting.format_delta(-0.083) == "-8.3%"
+
+
+def test_format_delta_new_takes_priority():
+    """is_new=True 이면 퍼센트 값과 무관하게 '신규'를 돌려줘야 합니다."""
+    assert formatting.format_delta(None, is_new=True) == "신규"
+
+
+def test_format_delta_none_returns_none():
+    """비교할 수 없는 경우 None을 돌려줘야 합니다. (st.metric이 delta를 숨기게 됨)"""
+    assert formatting.format_delta(None, is_new=False) is None
