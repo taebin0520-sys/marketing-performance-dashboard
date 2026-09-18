@@ -18,7 +18,7 @@ from datetime import timedelta
 import pandas as pd
 import streamlit as st
 
-from src import analysis, charts, config, data_loader, formatting, kpi
+from src import analysis, charts, config, data_loader, formatting, kpi, report
 from src.data_loader import DataValidationError
 
 # ---------------------------------------------------------------------------
@@ -311,8 +311,8 @@ st.caption(
 # ---------------------------------------------------------------------------
 # 6. 탭 구성
 # ---------------------------------------------------------------------------
-tab_trend, tab_channel, tab_content, tab_raw = st.tabs(
-    ["📈 추세", "📣 채널 비교", "🏆 콘텐츠 TOP", "🗂 원본 데이터"]
+tab_trend, tab_channel, tab_content, tab_report, tab_raw = st.tabs(
+    ["📈 추세", "📣 채널 비교", "🏆 콘텐츠 TOP", "📝 요약 리포트", "🗂 원본 데이터"]
 )
 
 # ---------------------------- 6-1. 추세 탭 ----------------------------
@@ -372,6 +372,10 @@ with tab_channel:
         charts.channel_bar_chart(channel_df, channel_metric),
         use_container_width=True,
     )
+
+    # 요약 리포트 탭에서도 재사용하므로, 항상 '전환' 기준 1위 채널을 별도로 계산해둡니다.
+    # (channel_metric은 사용자가 바꿀 수 있어서 리포트 기준과 다를 수 있기 때문입니다)
+    best_channel_for_report = analysis.summarize_channel_ranking(channel_df, "conversions")
 
     best_channel = analysis.summarize_channel_ranking(channel_df, channel_metric)
     if best_channel:
@@ -463,7 +467,34 @@ with tab_content:
             hide_index=True,
         )
 
-# ---------------------------- 6-4. 원본 데이터 탭 ----------------------------
+# ---------------------------- 6-4. 요약 리포트 탭 ----------------------------
+with tab_report:
+    st.subheader("자동 요약 리포트")
+    st.caption(
+        "이미 계산된 KPI·증감·채널·콘텐츠 결과를 규칙(if/else)으로 문장에 끼워 넣습니다. "
+        "생성형 AI를 사용하지 않으므로 같은 데이터라면 항상 같은 문장이 나옵니다."
+    )
+
+    # 리포트는 '전환' 기준으로 통일합니다. (탭마다 사용자가 고른 지표가 달라 기준이 흔들리면
+    # 리포트를 볼 때마다 다른 결론처럼 보일 수 있기 때문입니다)
+    report_top_content_df = analysis.top_n_content(
+        analysis.aggregate_by_content(filtered_df), metric="conversions", n=3
+    )
+
+    report_text = report.generate_summary_report(
+        start_date=start_date,
+        end_date=end_date,
+        kpis=kpis,
+        period_over_period=period_over_period,
+        best_channel=best_channel_for_report,
+        top_content_df=report_top_content_df,
+        previous_start=previous_start.date() if has_previous_period else None,
+        previous_end=previous_end.date() if has_previous_period else None,
+    )
+
+    st.markdown(report_text)
+
+# ---------------------------- 6-5. 원본 데이터 탭 ----------------------------
 with tab_raw:
     st.subheader("필터가 적용된 원본 데이터")
     st.caption("총 {}행".format(format(len(filtered_df), ",")))
