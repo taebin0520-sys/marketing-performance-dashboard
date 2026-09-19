@@ -107,3 +107,41 @@ def test_build_filename_includes_extension_without_dot():
 
     assert filename.endswith(".csv")
     assert filename.count(".") == 1
+
+
+
+def test_format_point_delta_adds_percentage_point_unit():
+    """퍼센트포인트는 반드시 '%p' 단위를 붙여 상대 증감률(%)과 구분해야 합니다.
+
+    CTR 3.22% -> 3.43% 인 경우
+      - 상대 증감률 : +6.5%   (format_delta 담당)
+      - 퍼센트포인트 : +0.21%p (이 함수 담당)
+    """
+    assert formatting.format_point_delta(0.0021) == "+0.21%p"
+
+
+def test_format_point_delta_negative():
+    """감소한 경우 - 부호가 붙어야 합니다."""
+    assert formatting.format_point_delta(-0.0035) == "-0.35%p"
+
+
+def test_format_point_delta_empty_returns_dash():
+    """계산 불가한 경우 '-'를 돌려줘야 합니다."""
+    assert formatting.format_point_delta(None) == "-"
+
+
+def test_relative_percent_and_point_delta_are_different():
+    """같은 변화를 두 방식으로 표현하면 값이 달라야 합니다. (혼동 방지 회귀 테스트)
+
+    3.22% -> 3.43% 변화에서
+      상대 증감률은 약 6.5%, 퍼센트포인트는 0.21%p 입니다.
+      이 둘을 혼용하면 성과를 30배 과장해 읽게 됩니다.
+    """
+    previous, current = 0.0322, 0.0343
+
+    relative = formatting.format_delta((current - previous) / previous)
+    point = formatting.format_point_delta(current - previous)
+
+    assert relative == "+6.5%"
+    assert point == "+0.21%p"
+    assert relative != point

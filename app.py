@@ -288,6 +288,9 @@ def render_metric_card(column, metric):
         config.get_metric_label(metric),
         formatting.format_metric(metric, kpis[metric]),
         delta=delta_text,
+        # CPA/CPC 같은 비용 지표는 '감소'가 개선이므로 색 방향을 뒤집습니다.
+        # 숫자(delta_text)는 그대로 음수로 두고 색만 바꿉니다.
+        delta_color=config.get_delta_color(metric),
     )
 
 
@@ -306,6 +309,11 @@ for column, metric in zip(efficiency_columns, efficiency_metrics):
 st.caption(
     "비율 지표는 행별 비율의 평균이 아니라 '합계 ÷ 합계'로 계산했습니다. "
     "노출이 적은 행의 극단값 때문에 전체 지표가 왜곡되는 것을 막기 위한 방식입니다."
+)
+st.caption(
+    "카드의 증감값은 **상대 증감률(%)** 입니다. 퍼센트포인트(%p)가 아닙니다. "
+    "예) CTR 3.22% → 3.43% 는 상대 +6.5% 이며, 퍼센트포인트로는 +0.21%p 입니다. "
+    "CPA·CPC는 값이 낮아지는 것이 개선이므로 감소를 초록색으로 표시합니다."
 )
 
 # ---------------------------------------------------------------------------
