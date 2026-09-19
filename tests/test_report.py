@@ -163,3 +163,93 @@ def test_report_is_deterministic_for_same_input():
     text_b = report.generate_summary_report(**kwargs)
 
     assert text_a == text_b
+
+
+
+# ---------------------------------------------------------------------------
+# 표현 정확성 / 과도한 단정 방지 테스트
+# ---------------------------------------------------------------------------
+
+def test_mover_section_states_relative_basis():
+    """증감이 상대 증감률 기준임을 문장에 명시해야 합니다. (%p 와의 혼동 방지)"""
+    pop = {"conversions": {"current": 90, "previous": 100, "delta": -10,
+                            "percent_change": -0.1, "is_new": False}}
+
+    section = report._build_mover_section(pop)
+
+    assert "상대 증감률" in section
+
+
+def test_mover_section_adds_percentage_point_for_ratio_metric():
+    """비율 지표가 최대 변화 지표면 실제 수치와 %p를 함께 표기해야 합니다.
+
+    CTR이 3.22% -> 3.43% 인 경우, 상대 +6.5% 만 적으면
+    읽는 사람이 +6.5%p 로 오해할 수 있습니다.
+    """
+    pop = {"ctr": {"current": 0.0343, "previous": 0.0322,
+                    "delta": 0.0021, "percent_change": 0.0652, "is_new": False}}
+
+    section = report._build_mover_section(pop)
+
+    assert "%p" in section
+    assert "3.22%" in section   # 이전 값
+    assert "3.43%" in section   # 현재 값
+
+
+def test_mover_section_omits_percentage_point_for_count_metric():
+    """전환처럼 개수 지표는 %p 개념이 없으므로 표기하지 않아야 합니다."""
+    pop = {"conversions": {"current": 90, "previous": 100, "delta": -10,
+                            "percent_change": -0.1, "is_new": False}}
+
+    section = report._build_mover_section(pop)
+
+    assert "%p" not in section
+
+
+def test_action_section_avoids_prescriptive_wording():
+    """자동 제안이 단정적 처방("늘려야/줄여야 한다")을 쓰지 않아야 합니다.
+
+    한 기간의 집계만으로 예산 증감을 단정하면 위험합니다.
+    규모를 키우면 효율이 떨어질 수 있고, 낮은 ROAS는 전환 추적 누락일 수도 있습니다.
+    """
+    mover = {"metric": "roas", "percent_change": 0.16, "direction": "증가"}
+    best_channel = {"channel_label": "카카오", "metric": "conversions", "value": 1055}
+
+    section = report._build_action_section(mover, best_channel)
+
+    for forbidden in ["늘려야", "줄여야", "중단해야", "가장 좋습니다"]:
+        assert forbidden not in section, forbidden
+
+
+def test_action_section_suggests_verification_not_conclusion():
+    """제안은 결론이 아니라 '무엇을 확인할지'를 담아야 합니다."""
+    mover = {"metric": "roas", "percent_change": -0.2, "direction": "감소"}
+
+    section = report._build_action_section(mover, {})
+
+    # 점검 대상(소재/타겟팅/랜딩/추적) 중 하나 이상이 언급되어야 합니다.
+    assert any(word in section for word in ["소재", "타겟팅", "랜딩", "추적"])
+
+
+def test_channel_section_uses_observational_wording():
+    """채널 성과는 '가장 좋다'가 아니라 '이 기간에 높게 나타났다'로 표현해야 합니다."""
+    best_channel = {"channel_label": "카카오", "metric": "conversions",
+                     "value": 1055, "conversion_rate": 0.0161}
+
+    section = report._build_channel_section(best_channel)
+
+    assert "최상위 채널" in section
+    assert "가장 좋습니다" not in section
+
+
+def test_channel_section_avoids_broken_korean_particle():
+    """지표 라벨 뒤에 조사를 붙이지 않아 '전환가' 같은 비문이 생기지 않아야 합니다.
+
+    한국어 조사(이/가)는 앞 글자 종성에 따라 달라지므로,
+    지표 라벨을 문장에 그대로 끼워 넣으면 틀린 조사가 나옵니다.
+    """
+    section = report._build_channel_section(
+        {"channel_label": "카카오", "metric": "conversions", "value": 1055}
+    )
+
+    assert "전환가" not in section

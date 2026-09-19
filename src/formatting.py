@@ -103,6 +103,36 @@ def format_delta(percent_change, is_new: bool = False):
     return "{:+.1f}%".format(percent_change * 100)
 
 
+def format_point_delta(delta, decimals: int = 2) -> str:
+    """비율 지표의 '퍼센트포인트(%p)' 차이를 표시합니다.
+
+    왜 이 함수가 따로 필요한가?
+    -------------------------
+    비율 지표(CTR, 전환율 등)의 변화는 두 가지로 표현할 수 있고, 둘은 전혀 다릅니다.
+
+    CTR이 3.22% -> 3.43% 로 올랐다면
+      - 상대 증감률 : (3.43 - 3.22) / 3.22 = 약 +6.5%   <- format_delta() 담당
+      - 퍼센트포인트 : 3.43 - 3.22 = +0.21%p             <- 이 함수 담당
+
+    "CTR이 6.5% 올랐다"와 "CTR이 0.21%p 올랐다"는 같은 사실의 다른 표현입니다.
+    이 둘을 혼용하면 성과를 6.5%p 오른 것처럼 30배 과장해 읽게 되므로,
+    표기를 분리하고 단위(%, %p)를 반드시 붙입니다.
+
+    Parameters
+    ----------
+    delta : float | None
+        비율의 차이 (예: 0.0343 - 0.0322 = 0.0021)
+
+    Examples
+    --------
+    >>> format_point_delta(0.0021)
+    '+0.21%p'
+    """
+    if is_empty(delta):
+        return EMPTY_MARK
+    return "{:+.{d}f}%p".format(delta * 100, d=decimals)
+
+
 def build_filename(prefix: str, start_date, end_date, extension: str) -> str:
     """다운로드 파일 이름을 만듭니다. 예) build_filename('report', ..., 'md')
        -> 'report_20260817_20260913.md'
