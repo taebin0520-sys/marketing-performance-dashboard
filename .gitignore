@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.DS_Store
+.streamlit/secrets.toml
+
+# 실제 회사 데이터를 실수로 커밋하지 않도록 차단합니다.
+# 저장소에는 data/sample_marketing_data.csv 만 포함합니다.
+data/*.csv
+!data/sample_marketing_data.csv
