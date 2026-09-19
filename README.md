@@ -3,6 +3,8 @@
 
 ![tests](https://github.com/taebin0520-sys/marketing-performance-dashboard/actions/workflows/tests.yml/badge.svg)
 
+**🚀 [라이브 데모 바로가기](https://taebin0520-sys-marketing-performance-dashboard-app-30zb6r.streamlit.app)** — 설치 없이 브라우저에서 바로 확인할 수 있습니다. (Streamlit Community Cloud)
+
 마케팅 CSV를 업로드하면 KPI·추세·채널 비교·콘텐츠 TOP N·전기 대비 증감을 자동으로 계산하고,
 규칙 기반 요약 리포트와 다운로드까지 제공하는 Streamlit 대시보드입니다.
 엑셀로 매주 반복하던 "취합 → 피벗 → 증감 계산 → 보고서 작성" 과정을 코드로 대체하는 것이 목표입니다.
@@ -22,8 +24,9 @@
 
 ### 화면
 
-> **스크린샷 미첨부.** 현재 이 저장소에는 화면 이미지가 포함되어 있지 않습니다.
-> 대시보드를 확인하려면 아래 [빠른 시작](#빠른-시작)으로 로컬에서 실행해주세요.
+**🚀 [라이브 데모](https://taebin0520-sys-marketing-performance-dashboard-app-30zb6r.streamlit.app)** 에서 실제 화면을 바로 확인할 수 있습니다.
+
+> **스크린샷 이미지는 아직 미첨부 상태**입니다. README에서 화면을 정적으로 보려면 아래 표의 경로에 이미지가 필요하지만, 현재는 라이브 데모 링크로 대체합니다.
 
 아래 4개 화면을 캡처해 `docs/` 에 추가할 예정입니다.
 
@@ -413,7 +416,8 @@ pytest -v
 - 현재는 **단일 CSV 파일** 기준입니다. DB나 광고 플랫폼 API 연동은 없습니다.
 - 자동 요약 리포트는 항상 **전환(conversions)** 기준으로 통일되어 있습니다. 탭에서 다른 지표를 선택해도 리포트 내용은 바뀌지 않습니다.
 - 리포트는 규칙 기반이라 **데이터에 없는 맥락(시즌 이벤트, 경쟁사 동향 등)은 반영하지 못합니다.** 제안 문장을 결론이 아니라 점검 출발점으로 읽어야 합니다.
-- **스크린샷 이미지가 없습니다.** 화면을 보려면 로컬 실행이 필요합니다. 배포 링크도 아직 없습니다.
+- **스크린샷 이미지 파일은 아직 없습니다.** [라이브 데모](https://taebin0520-sys-marketing-performance-dashboard-app-30zb6r.streamlit.app)로 실제 화면을 확인할 수 있습니다.
+- Streamlit Community Cloud 무료 티어 배포이므로, 장시간 미사용 시 앱이 슬립 상태가 되어 첫 접속 시 재시작 로딩이 몇십 초 걸릴 수 있습니다.
 
 ## 다음 단계 (제안)
 
