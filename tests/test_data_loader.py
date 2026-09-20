@@ -64,15 +64,33 @@ def test_clean_data_adds_korean_labels(raw_frame):
 
 
 def test_clean_data_creates_optional_columns_when_absent(raw_frame):
-    """광고비/매출 컬럼이 없어도 에러 없이 0으로 채워야 합니다."""
+    """광고비/매출 컬럼이 없어도 에러 없이 동작하고, 없다는 사실이 기록되어야 합니다."""
     without_cost = raw_frame.drop(columns=["cost", "revenue"])
 
     cleaned, info = data_loader.clean_data(without_cost)
 
     assert info["has_cost"] is False
     assert info["has_revenue"] is False
-    assert cleaned["cost"].sum() == 0
-    assert cleaned["revenue"].sum() == 0
+    # 뒤쪽 계산 코드가 컬럼 유무를 매번 확인하지 않도록 컬럼 자체는 만들어 둡니다.
+    assert "cost" in cleaned.columns
+    assert "revenue" in cleaned.columns
+
+
+def test_clean_data_fills_absent_optional_columns_with_nan_not_zero(raw_frame):
+    """없는 선택 컬럼은 0이 아니라 NaN('알 수 없음')으로 채워야 합니다.
+
+    0으로 채우면 '매출 0원'과 '매출 데이터 없음'을 구분할 수 없어
+    revenue 컬럼이 없는 CSV에서도 ROAS가 0.00배로 계산됩니다.
+    """
+    without_revenue = raw_frame.drop(columns=["revenue"])
+
+    cleaned, info = data_loader.clean_data(without_revenue)
+
+    assert info["has_revenue"] is False
+    assert cleaned["revenue"].isna().all()
+    # cost는 원본에 있었으므로 실제 값이 남아 있어야 합니다.
+    assert info["has_cost"] is True
+    assert cleaned["cost"].notna().any()
 
 
 def test_check_funnel_consistency_counts_violations():

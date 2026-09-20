@@ -17,6 +17,15 @@ from src import config, kpi
 # 집계할 때 더할 숫자 컬럼들
 SUM_COLUMNS = config.ALL_NUMERIC_COLUMNS
 
+# 아래 집계 함수들은 모두 .sum(min_count=1) 을 씁니다.
+#
+# 왜 min_count=1 인가?
+# pandas의 sum()은 기본적으로 NaN을 건너뛰고 더하므로, 값이 전부 NaN인 컬럼도
+# 합계가 0.0 이 됩니다. 그러면 'cost/revenue 컬럼이 아예 없어서 알 수 없는 경우'와
+# '실제로 0원인 경우'가 똑같이 0 으로 보여 ROAS가 0.00배로 잘못 계산됩니다.
+# min_count=1 은 "더할 실제 값이 최소 1개는 있어야 한다"는 뜻이라,
+# 전부 NaN이면 합계도 NaN으로 남아 '계산 불가(화면에는 -)'로 이어집니다.
+
 
 def add_period_column(df: pd.DataFrame, period_code: str) -> pd.DataFrame:
     """집계 단위(일간/주간/월간)에 맞는 'period' 컬럼을 추가합니다.
@@ -86,7 +95,7 @@ def aggregate_by_period(df: pd.DataFrame, period_code: str) -> pd.DataFrame:
 
     # as_index=False 를 쓰면 group 기준이 인덱스가 아니라 일반 컬럼으로 남습니다.
     # 차트 라이브러리에 바로 넘기기 편해집니다.
-    grouped = df.groupby(["period", "period_label"], as_index=False)[SUM_COLUMNS].sum()
+    grouped = df.groupby(["period", "period_label"], as_index=False)[SUM_COLUMNS].sum(min_count=1)
 
     # 시간 순서대로 정렬해야 선 그래프가 뒤엉키지 않습니다.
     grouped = grouped.sort_values("period").reset_index(drop=True)
@@ -108,7 +117,7 @@ def aggregate_by_period_and_channel(df: pd.DataFrame, period_code: str) -> pd.Da
 
     grouped = df.groupby(
         ["period", "period_label", "channel_label"], as_index=False
-    )[SUM_COLUMNS].sum()
+    )[SUM_COLUMNS].sum(min_count=1)
     grouped = grouped.sort_values(["period", "channel_label"]).reset_index(drop=True)
 
     return kpi.add_ratio_columns(grouped)
@@ -125,7 +134,7 @@ def aggregate_by_channel(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
 
-    grouped = df.groupby(["channel", "channel_label"], as_index=False)[SUM_COLUMNS].sum()
+    grouped = df.groupby(["channel", "channel_label"], as_index=False)[SUM_COLUMNS].sum(min_count=1)
     grouped = kpi.add_ratio_columns(grouped)
 
     return grouped.sort_values("conversions", ascending=False).reset_index(drop=True)
@@ -146,7 +155,7 @@ def aggregate_by_content(df: pd.DataFrame) -> pd.DataFrame:
         "channel_label",
         "content_type_label",
     ]
-    grouped = df.groupby(group_keys, as_index=False)[SUM_COLUMNS].sum()
+    grouped = df.groupby(group_keys, as_index=False)[SUM_COLUMNS].sum(min_count=1)
 
     # 차트 y축에 쓸 표시용 이름을 만듭니다. 제목 뒤에 콘텐츠 ID를 붙입니다.
     # 왜 필요한가: 서로 다른 콘텐츠가 우연히 같은 제목을 쓰는 경우가 실제로 있습니다.
