@@ -269,7 +269,17 @@ def build_row(day: date, content: dict, rng: random.Random) -> dict:
     revenue = int(conversions * rng.uniform(40000, 95000)) if conversions else 0
 
     # (9) 일부 행의 광고비를 비워서 결측치 전처리를 연습할 수 있게 합니다.
-    cost_value = "" if rng.random() < MISSING_COST_RATE else cost
+    #
+    # [중요] 광고비가 0원인 행(오가닉 채널)에서만 빈칸을 만듭니다.
+    # 전처리(src/data_loader.py)는 빈칸을 '그날 집행하지 않음 = 0원'으로 보고 0으로 채웁니다.
+    # 그런데 실제로 광고비가 발생한 유료 채널 행을 빈칸으로 만들면,
+    # 전처리 후 그 광고비가 0원으로 사라져 총 광고비가 줄고
+    # CPA는 실제보다 낮게, ROAS는 실제보다 높게 보이는 왜곡이 생깁니다.
+    # 따라서 '빈칸 = 0원'이라는 전제가 깨지지 않는 행에서만 결측을 만듭니다.
+    if cost == 0 and rng.random() < MISSING_COST_RATE:
+        cost_value = ""
+    else:
+        cost_value = cost
 
     return {
         "date": day.isoformat(),

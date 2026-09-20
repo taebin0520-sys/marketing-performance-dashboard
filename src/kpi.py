@@ -91,10 +91,21 @@ def sum_metrics(df: pd.DataFrame) -> dict:
     totals = {}
 
     for column in config.ALL_NUMERIC_COLUMNS:
-        if column in df.columns:
-            totals[column] = float(df[column].sum())
-        else:
-            totals[column] = 0.0
+        if column not in df.columns:
+            # 컬럼이 아예 없으면 '알 수 없음'입니다. 0으로 두면 안 됩니다.
+            totals[column] = None
+            continue
+
+        series = df[column]
+
+        # 값이 전부 비어 있으면(NaN) 그 지표는 '제공되지 않은 것'으로 봅니다.
+        # pandas의 sum()은 NaN을 건너뛰고 더하므로 전부 NaN이어도 0.0을 돌려줍니다.
+        # 그 0.0을 그대로 쓰면 '매출 0원'과 '매출 데이터 없음'을 구분할 수 없게 됩니다.
+        if len(series) > 0 and series.isna().all():
+            totals[column] = None
+            continue
+
+        totals[column] = float(series.sum())
 
     return totals
 

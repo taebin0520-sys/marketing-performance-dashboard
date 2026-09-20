@@ -135,9 +135,15 @@ def clean_data(df: pd.DataFrame) -> tuple:
     # ------------------------------------------------------------------
     for column in config.ALL_NUMERIC_COLUMNS:
         if column not in df.columns:
-            # 선택 컬럼(cost, revenue)이 없으면 0으로 채운 컬럼을 새로 만듭니다.
-            # 뒤쪽 계산 코드에서 "컬럼이 있나 없나"를 매번 확인하지 않아도 되게 하려는 목적입니다.
-            df[column] = 0
+            # 선택 컬럼(cost, revenue)이 아예 없으면 '알 수 없음'을 뜻하는 NaN으로 채웁니다.
+            # 뒤쪽 계산 코드가 "컬럼이 있나 없나"를 매번 확인하지 않아도 되게 컬럼 자체는 만듭니다.
+            #
+            # [중요] 여기서 0이 아니라 NaN을 쓰는 이유
+            # '매출이 0원이다'와 '매출 데이터를 아예 받지 못했다'는 의미가 전혀 다릅니다.
+            # 0으로 채우면 revenue 컬럼이 없는 CSV에서도 ROAS = 0 / 광고비 = 0.00배 로
+            # 계산되어, 마치 "광고비를 썼는데 매출이 0원"인 것처럼 보입니다.
+            # NaN으로 두면 계산 자체가 불가능(None)으로 처리되어 화면에 '-'로 표시됩니다.
+            df[column] = float("nan")
             continue
 
         converted = pd.to_numeric(df[column], errors="coerce")
