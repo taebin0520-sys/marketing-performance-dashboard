@@ -118,7 +118,14 @@ METRIC_FORMATS = {
 }
 
 # KPI 카드에 크게 보여줄 지표 순서
+# 규모 지표(합계로 계산되는 지표)
 KPI_CARD_METRICS = ["views", "reach", "clicks", "inquiries", "conversions"]
+
+# 효율 지표(비율·비용으로 계산되는 지표) 카드 순서
+# 규모 지표와 함께 이 파일에 두는 이유:
+# 한쪽만 app.py에 있으면 지표를 추가할 때 두 곳을 봐야 하고,
+# 한쪽만 고쳐서 화면과 설정이 어긋나는 일이 생깁니다.
+EFFICIENCY_CARD_METRICS = ["ctr", "inquiry_rate", "conversion_rate", "cpa", "roas"]
 
 # ---------------------------------------------------------------------------
 # 지표의 '좋은 방향' 정의

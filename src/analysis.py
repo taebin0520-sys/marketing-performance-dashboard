@@ -233,6 +233,47 @@ def get_previous_period(start_date, end_date) -> tuple:
     return previous_start, previous_end
 
 
+def has_comparable_previous_period(previous_df, previous_start, data_min_date) -> bool:
+    """직전 기간을 '증감 비교에 쓸 수 있는지' 판정합니다.
+
+    두 조건을 모두 만족해야 비교할 수 있습니다.
+
+    1) 직전 기간에 실제로 데이터가 있어야 합니다.
+       (필터를 적용한 결과가 0행이면 비교할 대상이 없습니다)
+    2) 직전 기간 시작일이 원본 데이터의 가장 이른 날짜보다 앞서면 안 됩니다.
+       이 경우 직전 기간의 일부만 데이터에 존재하므로, 그대로 비교하면
+       '기간이 짧아서 성과가 낮은 것'을 '성과가 나빠진 것'으로 잘못 읽게 됩니다.
+
+    조건 2가 왜 따로 필요한가요?
+        조건 1만 보면 직전 기간 28일 중 3일치 데이터만 있어도 '비교 가능'이 됩니다.
+        그 3일과 이번 28일을 비교하면 증감률이 -80% 처럼 크게 나빠진 것처럼
+        보이는데, 실제로는 비교 기간이 잘려서 생긴 착시입니다.
+
+    Parameters
+    ----------
+    previous_df : pd.DataFrame
+        직전 기간으로 필터링한 데이터
+    previous_start : pd.Timestamp or datetime.date
+        직전 기간 시작일
+    data_min_date : datetime.date
+        원본 데이터에서 가장 이른 날짜
+
+    Returns
+    -------
+    bool
+        비교에 사용할 수 있으면 True
+    """
+    if previous_df is None or previous_df.empty:
+        return False
+
+    # previous_start 는 Timestamp 로 들어오는 경우가 많아 date 로 맞춘 뒤 비교합니다.
+    # (Timestamp 와 date 를 직접 비교하면 타입에 따라 오류가 날 수 있습니다)
+    start = pd.Timestamp(previous_start).date()
+    minimum = pd.Timestamp(data_min_date).date()
+
+    return start >= minimum
+
+
 def calculate_period_over_period(current_kpis: dict, previous_kpis: dict) -> dict:
     """이번 기간 KPI와 직전 기간 KPI를 비교해 증감 정보를 계산합니다.
 
