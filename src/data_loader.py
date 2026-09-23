@@ -111,6 +111,8 @@ def clean_data(df: pd.DataFrame) -> tuple:
         "rows_before": len(df),
         "invalid_date_rows": 0,
         "missing_numeric_cells": 0,
+        # 원래 값이 있었는데 숫자로 바꾸지 못한 칸 수 (빈칸과 구분해서 셉니다)
+        "invalid_numeric_cells": 0,
         "negative_value_cells": 0,
         "has_cost": "cost" in df.columns,
         "has_revenue": "revenue" in df.columns,
@@ -146,10 +148,26 @@ def clean_data(df: pd.DataFrame) -> tuple:
             df[column] = float("nan")
             continue
 
-        converted = pd.to_numeric(df[column], errors="coerce")
+        raw_series = df[column]
 
-        # 숫자로 바꾸지 못한 칸(빈칸, 문자 등)의 개수를 기록하고 0으로 채웁니다.
-        #
+        # (1) 변환 '전에' 원래 비어 있던 칸을 먼저 표시해 둡니다.
+        #     빈칸(진짜 결측)과 숫자로 못 바꾼 값(파싱 실패)은 원인이 다르므로
+        #     나중에 구분해서 보고해야 합니다.
+        as_text = raw_series.astype(str).str.strip()
+        originally_blank = raw_series.isna() | (as_text == "")
+
+        # (2) 천 단위 쉼표를 제거한 뒤 숫자로 바꿉니다.
+        #     엑셀에서 CSV로 내보내면 숫자가 "1,234" 형태로 저장되는 일이 흔합니다.
+        #     쉼표를 그대로 두면 pd.to_numeric이 NaN을 돌려주고, 그 NaN을 0으로
+        #     채우면 모든 지표가 0이 되어 KPI 전체가 조용히 무의미해집니다.
+        #     그래서 쉼표만 먼저 지우고 변환합니다. ("12,345.67" -> 12345.67)
+        converted = pd.to_numeric(as_text.str.replace(",", "", regex=False), errors="coerce")
+
+        # (3) 원래 값이 있었는데 숫자로 바꾸지 못한 칸 = 파싱 실패입니다.
+        #     '빈칸이라서 0'과 '읽을 수 없는 값이라서 0'을 같은 것으로 처리하면
+        #     사용자가 데이터가 잘못 읽혔다는 사실을 알 수 없습니다.
+        parse_failed = converted.isna() & (~originally_blank)
+
         # [중요] 0으로 채우는 것이 일반적인 정답은 아닙니다.
         # 이 프로젝트는 '성과 데이터의 빈칸 = 그날 집계되지 않음(=0건)'이라고
         # 가정했기 때문에 0으로 채웁니다. 광고비가 비어 있으면 그날 집행하지 않은
@@ -161,8 +179,10 @@ def clean_data(df: pd.DataFrame) -> tuple:
         # 성과를 과소평가하게 됩니다.
         # 따라서 실무에서는 결측 원인을 먼저 확인하고, 업무 정의에 따라
         # 0 채우기 / 해당 행 제외 / 별도 결측 표시를 구분해서 처리해야 합니다.
-        # 그래서 여기서는 몇 칸을 채웠는지 info에 기록해 화면에 알려줍니다.
-        info["missing_numeric_cells"] += int(converted.isna().sum())
+        # 그래서 여기서는 빈칸 수와 파싱 실패 수를 각각 info에 기록해
+        # 화면에 알려줍니다.
+        info["missing_numeric_cells"] += int(originally_blank.sum())
+        info["invalid_numeric_cells"] += int(parse_failed.sum())
         converted = converted.fillna(0)
 
         # 성과 지표에 음수는 있을 수 없으므로 0으로 올립니다.
@@ -255,13 +275,28 @@ def filter_data(df: pd.DataFrame, start_date, end_date, channels=None, content_t
     start_date, end_date : date | datetime | str
         분석 기간 (양쪽 끝 포함)
     channels : list | None
-        선택한 채널 코드 목록. None이면 전체
+        선택한 채널 코드 목록.
+        None  = 필터를 걸지 않음(전체 채널)
+        []    = 선택한 채널이 없음 -> 결과 0건
     content_types : list | None
-        선택한 콘텐츠 유형 목록. None이면 전체
+        선택한 콘텐츠 유형 목록. channels와 같은 규칙입니다.
 
     Returns
     -------
     pd.DataFrame
+
+    Notes
+    -----
+    None과 빈 리스트([])를 반드시 구분합니다.
+
+    빈 리스트를 '전체'로 처리하면, 사용자가 화면에서 채널을 전부 지웠을 때
+    필터가 사라져 전체 채널 합계가 표시됩니다. 사이드바에는 아무것도 선택되지
+    않았는데 화면에는 전체 숫자가 나오므로, 사용자가 잘못된 KPI를 읽게 됩니다.
+    "아무것도 선택하지 않음"은 "전체 선택"이 아니라 "결과 0건"이 맞습니다.
+
+    그래서 `if channels:` (빈 리스트를 falsy로 보는 검사) 대신
+    `if channels is not None:` 을 씁니다. 빈 리스트가 넘어오면
+    isin([]) 이 모든 행을 False로 만들어 결과가 비게 됩니다.
     """
     # 비교를 위해 Timestamp로 통일합니다. (문자열/date/datetime 무엇이 와도 동작)
     start = pd.Timestamp(start_date).normalize()
@@ -269,10 +304,10 @@ def filter_data(df: pd.DataFrame, start_date, end_date, channels=None, content_t
 
     mask = (df[config.DATE_COLUMN] >= start) & (df[config.DATE_COLUMN] <= end)
 
-    if channels:
+    if channels is not None:
         mask = mask & df["channel"].isin(channels)
 
-    if content_types:
+    if content_types is not None:
         mask = mask & df["content_type"].isin(content_types)
 
     return df[mask].copy()
