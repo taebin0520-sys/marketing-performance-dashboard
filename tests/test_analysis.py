@@ -6,6 +6,9 @@
 그래서 이 두 가지를 반드시 확인하는 테스트를 넣었습니다.
 """
 
+from datetime import date
+
+import pandas as pd
 import pytest
 
 from src import analysis
@@ -271,3 +274,65 @@ def test_calculate_period_over_period_excludes_row_count():
 
     assert "row_count" not in result
     assert "conversions" in result
+
+
+
+# ---------------------------------------------------------------------------
+# 직전 기간 비교 가능 여부 판정
+# ---------------------------------------------------------------------------
+# 이 판정이 틀리면 화면에서 증감이 조용히 사라지거나,
+# 반대로 데이터가 잘린 기간과 비교해 증감률이 크게 왜곡됩니다.
+# 둘 다 에러 없이 잘못된 화면이 나오므로 테스트로 고정합니다.
+
+
+def test_previous_period_is_comparable_when_data_covers_it(clean_frame):
+    """직전 기간에 데이터가 있고 데이터 시작일 이후라면 비교할 수 있습니다."""
+    result = analysis.has_comparable_previous_period(
+        clean_frame,
+        previous_start=pd.Timestamp("2026-09-01"),
+        data_min_date=date(2026, 8, 1),
+    )
+
+    assert result is True
+
+
+def test_previous_period_not_comparable_when_no_rows(clean_frame):
+    """직전 기간 데이터가 0행이면 비교할 대상이 없습니다."""
+    empty = clean_frame.iloc[0:0]
+
+    result = analysis.has_comparable_previous_period(
+        empty,
+        previous_start=pd.Timestamp("2026-09-01"),
+        data_min_date=date(2026, 8, 1),
+    )
+
+    assert result is False
+
+
+def test_previous_period_not_comparable_when_start_precedes_data(clean_frame):
+    """직전 기간 시작일이 데이터 최소일보다 이전이면 비교하지 않습니다.
+
+    이 경우 직전 기간의 일부만 데이터에 존재하므로, 그대로 비교하면
+    '기간이 잘려서 낮은 값'을 '성과 악화'로 잘못 읽게 됩니다.
+    """
+    result = analysis.has_comparable_previous_period(
+        clean_frame,
+        previous_start=pd.Timestamp("2026-07-15"),
+        data_min_date=date(2026, 8, 1),
+    )
+
+    assert result is False
+
+
+def test_previous_period_comparable_on_exact_min_date_boundary(clean_frame):
+    """직전 기간 시작일이 데이터 최소일과 '같은 날'이면 비교 가능합니다.
+
+    경계값을 > 로 잘못 쓰면 하루 차이로 증감이 사라지므로 >= 를 고정합니다.
+    """
+    result = analysis.has_comparable_previous_period(
+        clean_frame,
+        previous_start=pd.Timestamp("2026-08-01"),
+        data_min_date=date(2026, 8, 1),
+    )
+
+    assert result is True

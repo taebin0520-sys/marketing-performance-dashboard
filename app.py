@@ -184,7 +184,7 @@ filtered_df = data_loader.filter_data(
 st.title("📊 마케팅 성과 분석 대시보드")
 st.caption(
     "분석 기간 {} ~ {}  |  집계 단위 {}  |  대상 {}행".format(
-        start_date, end_date, period_name, format(len(filtered_df), ",")
+        start_date, end_date, period_name, formatting.format_int(len(filtered_df))
     )
 )
 
@@ -229,8 +229,11 @@ previous_df = data_loader.filter_data(
     content_types=selected_content_types,
 )
 
-# 원본 데이터의 최소 날짜보다 이전 기간이면 비교할 데이터가 아예 없다는 뜻입니다.
-has_previous_period = not previous_df.empty and previous_start.date() >= min_date
+# 직전 기간을 비교에 쓸 수 있는지는 '판정 규칙'이므로 src/ 에서 처리합니다.
+# (화면 없이 테스트할 수 있어야 하는 로직입니다)
+has_previous_period = analysis.has_comparable_previous_period(
+    previous_df, previous_start, min_date
+)
 
 # ---------------------------------------------------------------------------
 # 4. 데이터 검증 결과 안내
@@ -328,9 +331,8 @@ for column, metric in zip(volume_columns, config.KPI_CARD_METRICS):
 
 # 5-2. 효율 지표 (비율)
 st.write("")  # 카드 사이 여백
-efficiency_metrics = ["ctr", "inquiry_rate", "conversion_rate", "cpa", "roas"]
-efficiency_columns = st.columns(len(efficiency_metrics))
-for column, metric in zip(efficiency_columns, efficiency_metrics):
+efficiency_columns = st.columns(len(config.EFFICIENCY_CARD_METRICS))
+for column, metric in zip(efficiency_columns, config.EFFICIENCY_CARD_METRICS):
     render_metric_card(column, metric)
 
 st.caption(
@@ -342,6 +344,19 @@ st.caption(
     "예) CTR 3.23% → 3.43% 는 약 상대 +6.2% (화면의 반올림 값 기준, 실제 카드는 반올림 전 값으로 계산해 +6.3%) 이며, 퍼센트포인트로는 +0.20%p 입니다. "
     "CPA·CPC는 값이 낮아지는 것이 개선이므로 감소를 초록색으로 표시합니다."
 )
+
+# ---------------------------------------------------------------------------
+# 5-3. 탭에서 공통으로 쓰는 집계 (탭 블록 밖에서 미리 계산)
+# ---------------------------------------------------------------------------
+# 채널 집계는 '채널 비교' 탭과 '요약 리포트' 탭에서 함께 씁니다.
+# 탭 블록 안에서 계산하면 리포트 탭이 "채널 탭이 먼저 실행된다"는 사실에
+# 의존하게 되어, 탭 순서를 바꾸거나 채널 탭에 중단 코드가 생기면 NameError가 납니다.
+# 그래서 탭을 만들기 전에 미리 계산해 둡니다.
+channel_df = analysis.aggregate_by_channel(filtered_df)
+
+# 리포트는 항상 '전환' 기준 1위 채널을 씁니다.
+# (채널 탭의 비교 지표는 사용자가 바꿀 수 있어서 리포트 기준과 달라질 수 있습니다)
+best_channel_for_report = analysis.summarize_channel_ranking(channel_df, "conversions")
 
 # ---------------------------------------------------------------------------
 # 6. 탭 구성
@@ -393,8 +408,6 @@ with tab_trend:
 with tab_channel:
     st.subheader("채널별 성과 비교")
 
-    channel_df = analysis.aggregate_by_channel(filtered_df)
-
     channel_metric = st.selectbox(
         "비교 지표",
         options=["conversions", "inquiries", "clicks", "views", "impressions", "ctr", "conversion_rate", "roas"],
@@ -407,10 +420,6 @@ with tab_channel:
         charts.channel_bar_chart(channel_df, channel_metric),
         use_container_width=True,
     )
-
-    # 요약 리포트 탭에서도 재사용하므로, 항상 '전환' 기준 1위 채널을 별도로 계산해둡니다.
-    # (channel_metric은 사용자가 바꿀 수 있어서 리포트 기준과 다를 수 있기 때문입니다)
-    best_channel_for_report = analysis.summarize_channel_ranking(channel_df, "conversions")
 
     best_channel = analysis.summarize_channel_ranking(channel_df, channel_metric)
     if best_channel:
@@ -540,7 +549,7 @@ with tab_report:
 # ---------------------------- 6-5. 원본 데이터 탭 ----------------------------
 with tab_raw:
     st.subheader("필터가 적용된 원본 데이터")
-    st.caption("총 {}행".format(format(len(filtered_df), ",")))
+    st.caption("총 {}행".format(formatting.format_int(len(filtered_df))))
 
     preview_columns = (
         [config.DATE_COLUMN, "channel_label", "content_id", "content_title", "content_type_label"]
