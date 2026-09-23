@@ -156,3 +156,140 @@ def test_load_and_prepare_raises_on_missing_columns(tmp_path):
 
     # 어떤 컬럼이 없는지 메시지에 들어 있어야 사용자가 고칠 수 있습니다.
     assert "impressions" in str(error.value)
+
+
+
+# ---------------------------------------------------------------------------
+# B-1. 필터에서 None(전체)과 빈 리스트(선택 없음)를 구분해야 한다
+# ---------------------------------------------------------------------------
+# 빈 리스트를 '전체'로 처리하면, 사용자가 화면에서 채널을 전부 지웠을 때
+# 필터가 사라져 전체 합계가 표시됩니다. 사이드바에는 아무것도 선택되지 않았는데
+# 화면에는 전체 KPI가 나오므로 잘못된 숫자를 읽게 됩니다.
+
+def test_filter_data_channels_none_keeps_all_rows(clean_frame):
+    """channels=None 이면 채널 필터를 걸지 않고 전체를 유지해야 합니다."""
+    filtered = data_loader.filter_data(
+        clean_frame, "2026-09-01", "2026-09-30", channels=None
+    )
+
+    assert len(filtered) == len(clean_frame)
+
+
+def test_filter_data_channels_empty_list_returns_no_rows(clean_frame):
+    """channels=[] 는 '선택된 채널이 없음'이므로 결과가 0건이어야 합니다."""
+    filtered = data_loader.filter_data(
+        clean_frame, "2026-09-01", "2026-09-30", channels=[]
+    )
+
+    assert filtered.empty
+
+
+def test_filter_data_content_types_none_keeps_all_rows(clean_frame):
+    """content_types=None 이면 콘텐츠 유형 필터를 걸지 않고 전체를 유지해야 합니다."""
+    filtered = data_loader.filter_data(
+        clean_frame, "2026-09-01", "2026-09-30", content_types=None
+    )
+
+    assert len(filtered) == len(clean_frame)
+
+
+def test_filter_data_content_types_empty_list_returns_no_rows(clean_frame):
+    """content_types=[] 는 '선택된 유형이 없음'이므로 결과가 0건이어야 합니다."""
+    filtered = data_loader.filter_data(
+        clean_frame, "2026-09-01", "2026-09-30", content_types=[]
+    )
+
+    assert filtered.empty
+
+
+def test_filter_data_empty_list_is_not_treated_as_select_all(clean_frame):
+    """빈 리스트와 None의 결과가 달라야 합니다. (같으면 B-1 버그가 되살아난 것)"""
+    all_rows = data_loader.filter_data(
+        clean_frame, "2026-09-01", "2026-09-30", channels=None
+    )
+    no_rows = data_loader.filter_data(
+        clean_frame, "2026-09-01", "2026-09-30", channels=[]
+    )
+
+    assert len(all_rows) > 0
+    assert len(no_rows) == 0
+
+
+# ---------------------------------------------------------------------------
+# B-2. 천 단위 쉼표가 있는 숫자를 0으로 만들지 않아야 한다
+# ---------------------------------------------------------------------------
+# 엑셀에서 CSV로 내보내면 숫자가 "1,234" 형태로 저장되는 일이 흔합니다.
+# 쉼표를 그대로 두면 숫자 변환이 실패해 NaN -> 0 이 되어 모든 지표가 0이 됩니다.
+
+def make_numeric_frame(impressions_values):
+    """impressions 컬럼만 바꿔가며 테스트할 최소 프레임을 만듭니다."""
+    size = len(impressions_values)
+    return pd.DataFrame(
+        {
+            "date": ["2026-09-01"] * size,
+            "channel": ["instagram"] * size,
+            "content_id": ["C0001"] * size,
+            "content_title": ["테스트 콘텐츠"] * size,
+            "content_type": ["image"] * size,
+            "impressions": impressions_values,
+            "reach": [0] * size,
+            "views": [0] * size,
+            "clicks": [0] * size,
+            "inquiries": [0] * size,
+            "conversions": [0] * size,
+        }
+    )
+
+
+def test_clean_data_parses_thousand_separator():
+    """"1,000" 은 0이 아니라 1000으로 변환되어야 합니다."""
+    cleaned, info = data_loader.clean_data(make_numeric_frame(["1,000"]))
+
+    assert cleaned["impressions"].iloc[0] == 1000
+    # 정상적으로 읽혔으므로 결측·파싱 실패로 세지 않아야 합니다.
+    assert info["missing_numeric_cells"] == 0
+    assert info["invalid_numeric_cells"] == 0
+
+
+def test_clean_data_parses_thousand_separator_with_decimal():
+    """"12,345.5" 처럼 소수점이 섞여도 숫자로 변환되어야 합니다.
+
+    impressions는 개수라서 정수로 반올림되므로 12346이 됩니다.
+    (원본 값이 0으로 사라지지 않는다는 점이 이 테스트의 핵심입니다)
+    """
+    cleaned, info = data_loader.clean_data(make_numeric_frame(["12,345.5"]))
+
+    assert cleaned["impressions"].iloc[0] == 12346
+    assert info["invalid_numeric_cells"] == 0
+
+
+def test_clean_data_keeps_plain_numbers_unchanged():
+    """쉼표가 없는 정상 숫자는 기존 동작을 그대로 유지해야 합니다."""
+    cleaned, info = data_loader.clean_data(make_numeric_frame([1500, 2500]))
+
+    assert cleaned["impressions"].tolist() == [1500, 2500]
+    assert info["missing_numeric_cells"] == 0
+    assert info["invalid_numeric_cells"] == 0
+
+
+def test_clean_data_counts_real_missing_as_missing_not_invalid():
+    """원래 비어 있던 칸은 '결측'으로 세고 '파싱 실패'로 세지 않아야 합니다."""
+    cleaned, info = data_loader.clean_data(make_numeric_frame(["", 100]))
+
+    assert cleaned["impressions"].iloc[0] == 0
+    assert info["missing_numeric_cells"] == 1
+    assert info["invalid_numeric_cells"] == 0
+
+
+def test_clean_data_flags_unparsable_text_instead_of_silent_zero():
+    """숫자로 읽을 수 없는 값은 조용히 0으로 넘기지 않고 별도로 세어야 합니다.
+
+    값이 0으로 채워지는 동작 자체는 유지하되,
+    '빈칸이라서 0'과 '읽을 수 없어서 0'을 구분해 사용자에게 알릴 수 있어야 합니다.
+    """
+    cleaned, info = data_loader.clean_data(make_numeric_frame(["몰라요", 100]))
+
+    assert cleaned["impressions"].iloc[0] == 0
+    # 빈칸이 아니었으므로 결측이 아니라 파싱 실패로 집계되어야 합니다.
+    assert info["invalid_numeric_cells"] == 1
+    assert info["missing_numeric_cells"] == 0

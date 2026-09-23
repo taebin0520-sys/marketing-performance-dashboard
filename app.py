@@ -188,6 +188,24 @@ st.caption(
     )
 )
 
+# 필터를 전부 해제한 경우를 먼저 구분해 안내합니다.
+# 이 경우를 '전체 선택'으로 처리하면, 아무것도 선택하지 않았는데 전체 KPI가
+# 표시되어 사용자가 잘못된 숫자를 읽게 됩니다. (data_loader.filter_data 주석 참고)
+if not selected_channels or not selected_content_types:
+    empty_filters = []
+    if not selected_channels:
+        empty_filters.append("채널")
+    if not selected_content_types:
+        empty_filters.append("콘텐츠 유형")
+
+    st.warning(
+        "{} 필터에서 선택된 항목이 없습니다. 최소 1개를 선택해주세요. "
+        "선택된 항목이 없으면 집계할 데이터가 없으므로 KPI를 표시하지 않습니다.".format(
+            " / ".join(empty_filters)
+        )
+    )
+    st.stop()
+
 if filtered_df.empty:
     st.warning(
         "선택한 조건에 해당하는 데이터가 없습니다. 기간이나 채널 필터를 다시 확인해주세요."
@@ -228,6 +246,15 @@ with st.expander("데이터 검증 결과 보기", expanded=False):
         messages.append(
             "비어 있던 숫자 칸 {}개를 0으로 채웠습니다.".format(
                 formatting.format_int(load_info["missing_numeric_cells"])
+            )
+        )
+    # 빈칸과 '읽을 수 없는 값'은 원인이 다르므로 따로 알려줍니다.
+    # 이 숫자가 크면 숫자 형식이 잘못 읽힌 것이므로 원본 파일을 확인해야 합니다.
+    if load_info.get("invalid_numeric_cells"):
+        messages.append(
+            "숫자로 읽을 수 없는 값 {}개를 0으로 처리했습니다. "
+            "원본 파일의 숫자 형식(문자 섞임 등)을 확인해주세요.".format(
+                formatting.format_int(load_info["invalid_numeric_cells"])
             )
         )
     if load_info["negative_value_cells"]:
